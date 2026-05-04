@@ -1,0 +1,764 @@
+{
+  "updatedAt": "2026-05-01T03:23:42.151Z",
+  "createdAt": "2026-04-30T17:24:10.775Z",
+  "id": "BbKRkREC30joWctz",
+  "name": "JobApplication Daily Picks Template",
+  "description": null,
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "ae252db5-209f-404d-b5e6-f1bcfe4ab9c1",
+      "name": "When clicking 'Execute workflow'",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "limit": 75,
+        "filters": {
+          "q": "(from:(jobright.ai OR linkedin.com OR ziprecruiter.com OR glassdoor.com OR joinhandshake.com OR mail.joinhandshake.com OR m.joinhandshake.com) OR subject:(Jobright OR LinkedIn OR ZipRecruiter OR Glassdoor OR Handshake)) newer_than:2d"
+        },
+        "simple": false
+      },
+      "id": "7071e163-d220-41ff-a059-b61eb4eef225",
+      "name": "Get many messages",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        208,
+        0
+      ],
+      "webhookId": "1c0e8cd3-a9d7-4e72-b24d-e2b2b8575cae"
+    },
+    {
+      "parameters": {
+        "jsCode": "const BLOCKED_TITLE_PARTS = [\r\n  'apply now',\r\n  'saved jobs',\r\n  'similar',\r\n  'job alert',\r\n  'recommended jobs',\r\n  'because you viewed',\r\n];\r\n\r\nconst BLOCKED_SUBJECT_PATTERNS = [\r\n  /your top job matches/i,\r\n  /latest .+ jobs you might like/i,\r\n  /are you still interested in these jobs/i,\r\n  /\\d+\\s+more jobs?/i,\r\n  /apply now/i,\r\n  /saved jobs/i,\r\n  /recommended jobs/i,\r\n  /similar jobs?/i,\r\n];\r\n\r\nconst GOOD_KEYWORDS = [\n  'job',\n  'jobs',\n  'role',\n  'position',\n  'opening',\n  'career',\n  'careers',\n  'hiring',\n  'apply',\n  'intern',\n  'internship',\n  'co-op',\n  'entry level',\n  'new grad',\n  'full-time',\n  'part-time',\n  'remote',\n  'hybrid',\n  'onsite',\n];\n\nconst STRONG_TECH_KEYWORDS = [\n  'software',\n  'developer',\n  'engineer',\n  'engineering',\n  'backend',\n  'back-end',\n  'systems',\n  'platform',\n  'automation',\n  'machine learning',\n  'ml',\n  'artificial intelligence',\n  'ai',\n  'data science',\n  'data engineering',\n  'data analyst',\n  'data analytics',\n  'cybersecurity',\n  'information security',\n  'security analyst',\n  'devops',\n  'cloud',\n  'python',\n  'java',\n  'c++',\n  'sql',\n];\n\nconst WEAK_OR_NOISY_KEYWORDS = [\n  'sales',\n  'recruiting',\n  'recruiter',\n  'marketing intern',\n  'human resources',\n  'hr intern',\n  'customer service',\n  'help desk',\n  'call support',\n  'technician',\n  'hvac',\n  'aviation',\n  'industrial engineering',\n  'project management intern',\n  'administrative',\n];\n\r\nconst SOURCE_PATTERNS = [\r\n  ['handshake', /handshake|joinhandshake/i],\r\n  ['jobright', /jobright/i],\r\n  ['linkedin', /linkedin/i],\r\n  ['ziprecruiter', /ziprecruiter/i],\r\n  ['glassdoor', /glassdoor/i],\r\n];\r\n\r\nfunction firstString(...values) {\r\n  for (const value of values) {\r\n    if (typeof value === 'string' && value.trim()) return value.trim();\r\n    if (value && typeof value.text === 'string' && value.text.trim()) return value.text.trim();\r\n  }\r\n  return '';\r\n}\r\n\r\nfunction clean(value) {\r\n  return String(value || '')\r\n    .replace(/&middot;/gi, ' - ')\r\n    .replace(/&amp;/gi, '&')\r\n    .replace(/&quot;/gi, '\"')\r\n    .replace(/&#x27;|&#39;/gi, \"'\")\r\n    .replace(/\\u00a0/g, ' ')\r\n    .replace(/[\\u200B-\\u200F\\u202A-\\u202E\\u2060\\uFEFF\\u034F\\u061C]/g, '')\r\n    .replace(/\\s+/g, ' ')\r\n    .replace(/[\"']/g, '')\r\n    .replace(/^[\\s:,-]+|[\\s:,-]+$/g, '')\r\n    .trim();\r\n}\r\n\r\nfunction sourceFor({ from, subject }) {\r\n  const haystack = `${from} ${subject}`;\r\n  return SOURCE_PATTERNS.find(([, pattern]) => pattern.test(haystack))?.[0] || 'gmail';\r\n}\r\n\r\nfunction decodeHtml(value) {\r\n  return String(value || '')\r\n    .replace(/&amp;/gi, '&')\r\n    .replace(/&quot;/gi, '\"')\r\n    .replace(/&#x27;|&#39;/gi, \"'\")\r\n    .replace(/&lt;/gi, '<')\r\n    .replace(/&gt;/gi, '>');\r\n}\r\n\r\nfunction unwrapRedirectUrl(url) {\r\n  try {\r\n    const parsed = new URL(url);\r\n    for (const key of ['url', 'u', 'target', 'redirect', 'redirect_url', 'r', 'link', 'to']) {\r\n      const value = parsed.searchParams.get(key);\r\n      if (value && /^https?:\\/\\//i.test(value)) return value;\r\n    }\r\n  } catch {}\r\n\r\n  return url;\r\n}\r\n\r\nfunction cleanUrl(rawUrl) {\r\n  const raw = decodeHtml(rawUrl)\r\n    .trim()\r\n    .replace(/\\\\u0026/g, '&')\r\n    .replace(/^[\\[(<\"']+/g, '')\r\n    .replace(/[)\\].,>\"'}]+$/g, '');\r\n  if (!raw) return '';\r\n\r\n  const linkedInJob = raw.match(/linkedin\\.com\\/(?:comm\\/)?jobs\\/view\\/(\\d+)/i);\r\n  if (linkedInJob) return `https://www.linkedin.com/jobs/view/${linkedInJob[1]}/`;\r\n\r\n  try {\r\n    const url = new URL(unwrapRedirectUrl(raw));\r\n    const nestedLinkedInJob = url.toString().match(/linkedin\\.com\\/(?:comm\\/)?jobs\\/view\\/(\\d+)/i);\r\n    if (nestedLinkedInJob) return `https://www.linkedin.com/jobs/view/${nestedLinkedInJob[1]}/`;\r\n\r\n    const hostPath = `${url.hostname.toLowerCase()}${url.pathname.toLowerCase()}`;\r\n    const preserveSearch = /ziprecruiter\\.com\\/(?:e?km|job)|glassdoor\\.com\\/partner\\/joblisting\\.htm|email\\.notifications\\.joinhandshake\\.com\\/c\\/|joinhandshake\\.com\\/(?:stu\\/)?jobs/i.test(hostPath);\r\n    if (!preserveSearch) url.search = '';\r\n    url.hash = '';\r\n    return url.toString();\r\n  } catch {\r\n    return raw;\r\n  }\r\n}\r\n\r\nfunction isAssetOrUtilityUrl(rawUrl) {\r\n  const url = cleanUrl(rawUrl);\r\n  if (!url) return true;\r\n\r\n  try {\r\n    const parsed = new URL(url);\r\n    const host = parsed.hostname.toLowerCase();\r\n    const path = parsed.pathname.toLowerCase();\r\n    const full = `${host}${path}`;\r\n\r\n    if (/\\.(png|jpe?g|gif|svg|webp|ico|css|js|mjs|woff2?|ttf|map|xml)$/i.test(path)) return true;\r\n    if (/^(static|media|images?|img|assets)\\./i.test(host)) return true;\r\n    if (/\\/(static|assets|images?|img|logos?|icons?|favicon|pixel|tracking|unsubscribe|privacy|legal|help|settings|promo|premium|widget)\\b/i.test(path)) return true;\r\n    if (/unsubscribe|manage[_-]?alerts?|emailpreference|privacy|legal|help|settings|promo|premium|widget|tracking|pixel|logo|favicon/i.test(full)) return true;\r\n    if (/doubleclick|google-analytics|facebook\\.com\\/tr|analytics|tracking/i.test(host)) return true;\r\n  } catch {\r\n    return true;\r\n  }\r\n\r\n  return false;\r\n}\r\n\r\nfunction jobUrlScore(rawUrl, source) {\r\n  const url = cleanUrl(rawUrl);\r\n  if (!url || isAssetOrUtilityUrl(url)) return -1000;\r\n\r\n  try {\r\n    const parsed = new URL(url);\r\n    const host = parsed.hostname.toLowerCase();\r\n    const path = parsed.pathname.toLowerCase();\r\n    let score = 0;\r\n\r\n    if (/linkedin\\.com$/i.test(host) && /\\/jobs\\/view\\/\\d+/.test(path)) score += 140;\r\n    if (/jobright\\.ai$/i.test(host) && /\\/job|\\/jobs|\\/dashboard|\\/recommended/i.test(path)) score += 120;\r\n    if (/joinhandshake\\.com$/i.test(host) && /\\/jobs|\\/stu\\/jobs/i.test(path)) score += 120;\r\n    if (/glassdoor\\.com$/i.test(host) && /job|job-listing|partner/i.test(path)) score += 110;\r\n    if (/ziprecruiter\\.com$/i.test(host) && /job|jobs|candidate/i.test(path)) score += 110;\r\n    if (/ashbyhq\\.com|greenhouse\\.io|lever\\.co|workdayjobs\\.com|myworkdayjobs\\.com|smartrecruiters\\.com|icims\\.com|jobvite\\.com/i.test(host)) score += 120;\r\n\r\n    if (source && host.includes(source)) score += 20;\r\n    if (/job|jobs|career|careers|position|opening|req|posting/i.test(path)) score += 35;\r\n    if (/click|redirect|track/i.test(path)) score -= 15;\r\n\r\n    return score;\r\n  } catch {\r\n    return -1000;\r\n  }\r\n}\r\n\r\nfunction collectUrlsFromText(value) {\r\n  const text = decodeHtml(value);\r\n  const urls = [];\r\n  const hrefRegex = /\\bhref\\s*=\\s*[\"']([^\"']+)[\"']/gi;\r\n  const rawUrlRegex = /https?:\\/\\/[^\\s<>\"'\\])]+/gi;\r\n\r\n  for (const match of text.matchAll(hrefRegex)) {\r\n    urls.push({ url: match[1], href: true });\r\n  }\r\n\r\n  for (const match of text.matchAll(rawUrlRegex)) {\r\n    urls.push({ url: match[0], href: false });\r\n  }\r\n\r\n  return urls;\r\n}\r\n\r\nfunction extractBestUrl(source, ...values) {\r\n  const combined = values.filter(value => typeof value === 'string' && value.trim()).join('\\n');\r\n  const candidates = collectUrlsFromText(combined)\r\n    .map(candidate => ({\r\n      ...candidate,\r\n      clean: cleanUrl(candidate.url),\r\n      score: jobUrlScore(candidate.url, source) + (candidate.href ? 20 : 0),\r\n    }))\r\n    .filter(candidate => candidate.score > 0)\r\n    .sort((a, b) => b.score - a.score);\r\n\r\n  return cleanUrl(candidates[0]?.clean || '');\r\n}\r\n\r\nfunction splitTitleCompany(subject) {\r\n  const s = clean(subject)\n    .replace(/^(?:hi|hello|hey)\\s+[a-z]+,\\s*/i, '')\n    .replace(/^[a-z]{2,20},\\s+(?=(?:new|your|you|job|jobs|we|a|an)\\b)/i, '')\n    .replace(/^(Job alert|Handshake|LinkedIn|ZipRecruiter|Glassdoor|Jobright):\\s*/i, '')\n    .replace(/\\s*\\|\\s*(LinkedIn|ZipRecruiter|Glassdoor|Handshake|Jobright).*$/i, '')\n    .replace(/\\s*-\\s*(LinkedIn|ZipRecruiter|Glassdoor|Handshake|Jobright).*$/i, '');\n\r\n  // Jobright single-job alert:\r\n  // \"Philo Homes just posted a 90% match Software Engineer Intern ... role 35 minutes ago\"\r\n  const jobrightSingle = s.match(/^(.+?)\\s+just posted a\\s+\\d+% match\\s+(.+?)\\s+role\\b/i);\r\n  if (jobrightSingle) {\r\n    return {\r\n      company: clean(jobrightSingle[1]),\r\n      title: clean(jobrightSingle[2]),\r\n    };\r\n  }\r\n\r\n  // Jobright hiring format:\r\n  // \"Hach is hiring for “Cybersecurity Intern” like you — 98% match from Jobright\"\r\n  const hiringFor = s.match(/^(.+?)\\s+is hiring for\\s+[“\"']?(.+?)[”\"']?(?:\\s+like you|\\s+—|\\s+-|$)/i);\r\n  if (hiringFor) {\r\n    return {\r\n      company: clean(hiringFor[1]),\r\n      title: clean(hiringFor[2]),\r\n    };\r\n  }\r\n\r\n  // LinkedIn:\r\n  // \"Summer Internship - Security Engineering role at Aledade: Actively recruiting\"\r\n  const roleAt = s.match(/^(.+?)\\s+role at\\s+(.+?)(?::\\s*Actively recruiting)?$/i);\r\n  if (roleAt) {\r\n    return {\r\n      title: clean(roleAt[1]),\r\n      company: clean(roleAt[2]),\r\n    };\r\n  }\r\n\r\n  // Generic \"... at Company\"\r\n  const atPattern = s.match(/^(.+?)\\s+at\\s+(.+?)(?::\\s*Actively recruiting)?$/i);\r\n  if (atPattern) {\r\n    return {\r\n      title: clean(atPattern[1]),\r\n      company: clean(atPattern[2]),\r\n    };\r\n  }\r\n\r\n  // Generic \"Title - Company\"\r\n  const dashPattern = s.match(/^(.+?)\\s[-–]\\s(.+)$/);\r\n  if (dashPattern) {\r\n    return {\r\n      title: clean(dashPattern[1]),\r\n      company: clean(dashPattern[2]),\r\n    };\r\n  }\r\n\r\n  return { company: '', title: s };\r\n}\r\n\r\nfunction fitFor(text) {\n  const lower = String(text || '').toLowerCase();\n  const keywordHits = GOOD_KEYWORDS.filter(keyword => lower.includes(keyword)).length;\n  const strongTechHits = STRONG_TECH_KEYWORDS.filter(keyword => lower.includes(keyword)).length;\n  const weakHits = WEAK_OR_NOISY_KEYWORDS.filter(keyword => lower.includes(keyword)).length;\n  let score = 35 + Math.min(keywordHits, 8) * 3;\n\n  if (/\\b(job|jobs|role|position|opening|career|careers|hiring|apply)\\b/i.test(lower)) score += 6;\n  if (/\\b(remote|hybrid|onsite|full-time|part-time|contract|temporary|seasonal)\\b/i.test(lower)) score += 3;\n  score += Math.min(strongTechHits, 5) * 4;\n  score -= Math.min(weakHits, 3) * 5;\n  if (/\\b(intern|internship|co-op|apprentice|new grad|entry level)\\b/i.test(lower) && strongTechHits) score += 6;\n  if (/\\b(software|machine learning|data science|data engineering|cybersecurity|information security)\\b/i.test(lower)) score += 4;\n  if (/\\b(senior|staff|principal|lead|manager|director|architect)\\b/i.test(lower)) score -= 10;\n  if (/\\b(unpaid|commission only)\\b/i.test(lower)) score -= 25;\n  if (/unsubscribe|manage alerts?|email preferences|privacy policy/i.test(lower)) score -= 8;\n\n  return Math.max(0, Math.min(72, score));\n}\n\r\nfunction priorityFor(score) {\r\n  if (score >= 80) return 'high';\r\n  if (score >= 65) return 'medium';\r\n  return 'low';\r\n}\r\n\r\nfunction makeJob({ json, subject, from, source, title, company, location, url, description }) {\r\n  const scoreText = [title, company, location, description, subject].join('\\n');\r\n  const fit_score = fitFor(scoreText);\r\n  const priority = priorityFor(fit_score);\r\n\r\n  const job_key = clean(`${source}-${company || 'unknown'}-${title}-${location || ''}`)\r\n    .toLowerCase()\r\n    .replace(/[^a-z0-9]+/g, '-')\r\n    .replace(/^-+|-+$/g, '');\r\n\r\n  const note = company && title ? `${title} at ${company}` : subject;\r\n\r\n  return {\r\n    json: {\r\n      date_found: new Date().toISOString(),\r\n      email_date: json.date || '',\r\n      company,\r\n      title,\r\n      location,\r\n      url,\r\n      source,\r\n      description: clean(description).slice(0, 1200),\r\n      description_source: 'email',\r\n      fit_score,\r\n      priority,\r\n      resume_variant: '',\r\n      status: 'new',\r\n      follow_up_date: '',\r\n      notes: note,\r\n      source_email_subject: subject,\r\n      subject,\r\n      from,\r\n      message_id: json.messageId || json.id || '',\r\n      job_key,\r\n    },\r\n  };\r\n}\r\n\r\nfunction parseLinkedInDigest({ json, subject, from, source }) {\n  const text = firstString(json.text, json.textPlain, json.snippet);\n  if (source !== 'linkedin' || !text || !/View job:/i.test(text)) return [];\n\r\n  const blocks = text.split(/\\n-{5,}\\n/g);\r\n  const jobs = [];\r\n\r\n  for (const rawBlock of blocks) {\r\n    const lines = rawBlock\r\n      .replace(/\\r/g, '')\r\n      .split('\\n')\r\n      .map(line => line.trim())\r\n      .filter(Boolean);\r\n\r\n    if (lines[0] && /^Your job alert/i.test(lines[0])) lines.shift();\r\n\r\n    const viewJobIndex = lines.findIndex(line => /^View job:/i.test(line));\n    if (viewJobIndex === -1 || lines.length < 4) continue;\n\n    const jobLines = lines\n      .slice(0, viewJobIndex)\n      .map(clean)\n      .filter(Boolean)\n      .filter(line => !/^your job alert/i.test(line))\n      .filter(line => !/^top job picks/i.test(line))\n      .filter(line => !/^new jobs match your preferences/i.test(line))\n      .filter(line => !/^new recommended jobs/i.test(line))\n      .filter(line => !/^based on your profile/i.test(line))\n      .filter(line => !/^your saved job at .+ is still available\\.?$/i.test(line))\n      .filter(line => !/^your other saved jobs$/i.test(line))\n      .filter(line => !/^this company is actively hiring$/i.test(line))\n      .filter(line => !/^apply with resume/i.test(line))\n      .filter(line => !/^high skills match$/i.test(line))\n      .filter(line => !/^\\d+\\s+school alum(?:ni)?$/i.test(line))\n      .filter(line => !/^\\d+\\s+connection(?:s)?$/i.test(line))\n      .filter(line => !/^promoted jobs/i.test(line));\n\n    if (jobLines.length < 3) continue;\n\n    const [title, company, location] = jobLines.slice(-3).map(clean);\n    const url = cleanUrl(lines[viewJobIndex].replace(/^View job:\\s*/i, ''));\n    const signals = jobLines.slice(3).map(clean).filter(Boolean);\n    const description = [title, company, location, ...signals].join(' | ');\n\n    if (!title || !company || !location) continue;\n    if (/^new jobs match your preferences$/i.test(title)) continue;\n\n    jobs.push(makeJob({ json, subject, from, source, title, company, location, url, description }));\n  }\n\r\n  return jobs;\r\n}\r\n\r\nfunction collectJobrightUrls(...values) {\r\n  const seen = new Set();\r\n  const urls = [];\r\n  const combined = values.filter(value => typeof value === 'string' && value.trim()).join('\\n');\r\n\r\n  for (const candidate of collectUrlsFromText(combined)) {\r\n    const url = cleanUrl(candidate.url);\r\n    const match = url.match(/^https?:\\/\\/(?:www\\.)?jobright\\.ai\\/jobs\\/info\\/([a-z0-9]+)/i);\r\n    if (!match) continue;\r\n\r\n    const normalized = `https://jobright.ai/jobs/info/${match[1]}`;\r\n    if (seen.has(normalized)) continue;\r\n    seen.add(normalized);\r\n    urls.push(normalized);\r\n  }\r\n\r\n  return urls;\r\n}\r\n\r\nfunction stripJobrightUrls(line) {\r\n  return clean(\r\n    decodeHtml(line)\r\n      .replace(/\\[[^\\]]*https?:\\/\\/[^\\]]+\\]/gi, ' ')\r\n      .replace(/https?:\\/\\/[^\\s]+/gi, ' ')\r\n  );\r\n}\r\n\r\nfunction isJobrightNoiseLine(line) {\r\n  return (\r\n    !line ||\r\n    /jobright\\.ai\\s+(job icon|logo)/i.test(line) ||\r\n    /^jobright instant alert$/i.test(line) ||\r\n    /^always be the first to apply$/i.test(line) ||\r\n    /^apply now$/i.test(line) ||\r\n    /^more great matches/i.test(line) ||\r\n    /^view more opportunities$/i.test(line) ||\r\n    /^autofill icon$/i.test(line) ||\r\n    /^apply faster with autofill$/i.test(line) ||\r\n    /^save time by skipping repetitive forms$/i.test(line) ||\r\n    /^install autofill$/i.test(line) ||\r\n    /^happy job hunting/i.test(line) ||\r\n    /^the jobright\\.ai team$/i.test(line) ||\r\n    /^update job alert preference/i.test(line) ||\r\n    /^unsubscribe$/i.test(line) ||\r\n    /^explore this today/i.test(line) ||\r\n    /^experiences, and skill sets/i.test(line)\r\n  );\r\n}\r\n\r\nfunction looksLikeJobrightIndustry(line) {\r\n  return /·|\\b(stage|public company|private company|non profit|software|technology|intelligence|big data|finance|energy|education|automotive|electronics|aerospace|advertising|biotechnology|healthcare|furniture)\\b/i.test(line);\r\n}\r\n\r\nfunction isJobrightTimeLine(line) {\r\n  return /\\b(?:minute|minutes|hour|hours|day|days|week|weeks)\\s+ago\\b/i.test(line) || /be an early applicant/i.test(line);\r\n}\r\n\r\nfunction parseJobrightDetails(detailLines) {\r\n  const joined = clean(\r\n    detailLines\r\n      .join(' / ')\r\n      .replace(/(\\/(?:hr|yr|mo))(?=[A-Z])/gi, '$1 / ')\r\n      .replace(/(Remote)(?=\\d+\\+\\s*referrals?)/gi, '$1 / ')\r\n      .replace(/([A-Z]{2})(?=\\d+\\+\\s*referrals?)/g, '$1 / ')\r\n      .replace(/([A-Za-z)])(?=\\d+\\+\\s*referrals?)/g, '$1 / ')\r\n  );\r\n  const salaryMatch = joined.match(/\\$[\\d,.]+K?(?:\\/(?:hr|yr|mo))?\\s*-\\s*\\$[\\d,.]+K?(?:\\/(?:hr|yr|mo))?/i);\r\n  const referralMatch = joined.match(/\\d+\\+\\s*referrals?\\b/i);\r\n  const salary = clean(salaryMatch?.[0] || '');\r\n  const referrals = clean(referralMatch?.[0] || '');\r\n  const remainder = clean(\r\n    joined\r\n      .replace(/\\$[\\d,.]+K?(?:\\/(?:hr|yr|mo))?\\s*-\\s*\\$[\\d,.]+K?(?:\\/(?:hr|yr|mo))?/gi, ' ')\r\n      .replace(/\\d+\\+\\s*referrals?\\b/gi, ' ')\r\n      .replace(/\\b(?:minute|minutes|hour|hours|day|days|week|weeks)\\s+ago\\b.*$/i, ' ')\r\n      .replace(/be an early applicant/gi, ' ')\r\n  ).replace(/^\\/+\\s*|\\s*\\/+$/g, '');\r\n  const candidates = remainder\r\n    .split(/\\s*\\/\\s*| {2,}/)\r\n    .map(line => clean(line).replace(/^\\/+\\s*|\\s*\\/+$/g, ''))\r\n    .filter(Boolean)\r\n    .filter(line => !/^\\$/.test(line) && !/referrals?/i.test(line) && !isJobrightTimeLine(line));\r\n  const location = clean(candidates.find(line => /remote|,\\s*[A-Z]{2}\\b|united states|metropolitan area|campus|,\\s*US\\b|\\bUS$/i.test(line)) || candidates[0] || '');\r\n\r\n  return {\r\n    salary,\r\n    referrals,\r\n    location: /^remote$/i.test(location) ? 'Remote' : location,\r\n    detail: joined,\r\n  };\r\n}\r\n\r\nfunction parseJobrightDigest({ json, subject, from, source }) {\r\n  const text = firstString(json.text, json.textPlain, json.snippet);\r\n  if (source !== 'jobright' || !text || !/\\b\\d{1,3}%/.test(text)) return [];\r\n\r\n  const urls = collectJobrightUrls(json.text, json.textPlain, json.html, json.textAsHtml, json.textHtml, json.body, json.message, json.snippet);\r\n  const lines = text\r\n    .replace(/\\r/g, '')\r\n    .split('\\n')\r\n    .map(stripJobrightUrls)\r\n    .filter(line => line && !isJobrightNoiseLine(line));\r\n  const jobs = [];\r\n\r\n  for (let index = 0; index < lines.length; index++) {\r\n    const percentMatch = lines[index].match(/^(\\d{1,3})%$/);\r\n    if (!percentMatch) continue;\r\n\r\n    const industryLine = lines[index - 1] || '';\r\n    const hasIndustry = looksLikeJobrightIndustry(industryLine);\r\n    const company = clean(hasIndustry ? lines[index - 2] : lines[index - 1]);\r\n    const industry = clean(hasIndustry ? industryLine : '');\r\n    const title = clean(lines[index + 1] || '');\r\n\r\n    if (!company || !title || /^\\$/.test(title) || /^\\d{1,3}%$/.test(title)) continue;\r\n\r\n    const detailLines = [];\r\n    for (let next = index + 2; next < lines.length && detailLines.length < 5; next++) {\r\n      const line = lines[next];\r\n      if (/^\\d{1,3}%$/.test(line)) break;\r\n      if (isJobrightTimeLine(line)) break;\r\n      detailLines.push(line);\r\n    }\r\n\r\n    const details = parseJobrightDetails(detailLines);\r\n    const matchScore = `${percentMatch[1]}% match`;\r\n    const description = [\r\n      title,\r\n      company,\r\n      details.location,\r\n      details.salary,\r\n      details.referrals,\r\n      matchScore,\r\n      industry,\r\n    ].filter(Boolean).join(' | ');\r\n\r\n    jobs.push(makeJob({\r\n      json,\r\n      subject,\r\n      from,\r\n      source,\r\n      title,\r\n      company,\r\n      location: details.location,\r\n      url: urls[jobs.length] || '',\r\n      description,\r\n    }));\r\n  }\r\n\r\n  return jobs;\r\n}\r\n\r\nfunction parseZipRecruiterDigest({ json, subject, from, source }) {\r\n  const text = firstString(json.text, json.textPlain);\r\n  if (source !== 'ziprecruiter' || !text || !/ziprecruiter\\.com\\/(?:e?km|job)/i.test(text)) return [];\r\n\r\n  const rawLines = text\r\n    .replace(/\\r/g, '')\r\n    .split('\\n')\r\n    .map(line => line.trim())\r\n    .filter(Boolean);\r\n  const jobs = [];\r\n\r\n  for (let index = 0; index < rawLines.length; index++) {\r\n    const line = rawLines[index];\r\n    const match = line.match(/^(.+?)\\s+<((?:https?:\\/\\/)?www\\.ziprecruiter\\.com\\/(?:e?km|job)[^>]+)>$/i);\r\n    if (!match) continue;\r\n\r\n    const title = clean(match[1]);\r\n    const url = cleanUrl(match[2]);\r\n    if (!title || /^(view details|view more jobs|quick apply|1-click apply|apply now)$/i.test(title)) continue;\r\n\r\n    const detailLines = [];\r\n    for (let next = index + 1; next < rawLines.length; next++) {\r\n      const nextLine = rawLines[next];\r\n      if (/^(.+?)\\s+<((?:https?:\\/\\/)?www\\.ziprecruiter\\.com\\/(?:e?km|km|job)[^>]+)>$/i.test(nextLine)) break;\r\n      if (/^view details\\b/i.test(nextLine)) break;\r\n      if (/^view more jobs\\b/i.test(nextLine)) break;\r\n      detailLines.push(clean(nextLine));\r\n    }\r\n\r\n    const companyLine = detailLines.find(line => line.includes('•')) || '';\r\n    const parts = companyLine.split('•').map(clean).filter(Boolean);\r\n    const company = parts[0] || '';\r\n    const location = parts.slice(1).join(' / ');\r\n    const extraSignals = detailLines.filter(line => line && line !== companyLine).slice(0, 4);\r\n    const description = [title, company, location, ...extraSignals].filter(Boolean).join(' | ');\r\n\r\n    if (!company) continue;\r\n    jobs.push(makeJob({ json, subject, from, source, title, company, location, url, description }));\r\n  }\r\n\r\n  return jobs;\r\n}\r\n\r\nfunction parseGlassdoorDigest({ json, subject, from, source }) {\r\n  const text = firstString(json.text, json.textPlain);\r\n  if (source !== 'glassdoor' || !text || !/glassdoor\\.com\\/partner\\/jobListing/i.test(text)) return [];\r\n\r\n  const lines = text\r\n    .replace(/\\r/g, '')\r\n    .split('\\n')\r\n    .map(line => clean(line))\r\n    .filter(Boolean);\r\n  const jobs = [];\r\n\r\n  function isNoise(line) {\r\n    return (\r\n      !line ||\r\n      /^avatar$/i.test(line) ||\r\n      /^\\[?https?:\\/\\//i.test(line) ||\r\n      /^easy apply$/i.test(line) ||\r\n      /^just posted$/i.test(line) ||\r\n      /^\\d+\\s*[hd]$/i.test(line) ||\r\n      /^\\$/.test(line) ||\r\n      /employer est/i.test(line) ||\n      /^best places? to work$/i.test(line) ||\n      /^actively hiring$/i.test(line) ||\n      /glassdoor/i.test(line) ||\n      /job alert:/i.test(line) ||\r\n      /check out your newest listings/i.test(line) ||\r\n      /your job listings/i.test(line)\r\n    );\r\n  }\r\n\r\n  for (let index = 0; index < lines.length; index++) {\r\n    const line = lines[index];\r\n    if (!/glassdoor\\.com\\/partner\\/jobListing/i.test(line)) continue;\r\n\r\n    const urlMatch = line.match(/https?:\\/\\/[^\\]\\s]+/i);\r\n    const url = cleanUrl(urlMatch?.[0] || '');\r\n    if (!url) continue;\r\n\r\n    const meaningful = [];\r\n    for (let prev = index - 1; prev >= 0 && meaningful.length < 4; prev--) {\r\n      const candidate = lines[prev];\r\n      if (isNoise(candidate)) continue;\r\n      meaningful.unshift(candidate);\r\n    }\r\n\r\n    const company = clean((meaningful[meaningful.length - 3] || '').replace(/\\s+\\d+(?:\\.\\d+)?\\s*★.*$/i, ''));\r\n    const title = clean(meaningful[meaningful.length - 2] || '');\r\n    const location = clean(meaningful[meaningful.length - 1] || '');\r\n    if (/^\\d+(?:\\.\\d+)?\\s*★$/i.test(company)) continue;\r\n    if (!company || !title || /^(new|remote|united states)$/i.test(title)) continue;\r\n\r\n    const description = [title, company, location].filter(Boolean).join(' | ');\r\n    jobs.push(makeJob({ json, subject, from, source, title, company, location, url, description }));\r\n  }\r\n\r\n  return jobs;\r\n}\r\n\r\nfunction stripHtml(value) {\r\n  return clean(\r\n    decodeHtml(value)\r\n      .replace(/<style[\\s\\S]*?<\\/style>/gi, ' ')\r\n      .replace(/<script[\\s\\S]*?<\\/script>/gi, ' ')\r\n      .replace(/<[^>]+>/g, ' ')\r\n  );\r\n}\r\n\r\nfunction extractHtmlAnchors(value) {\r\n  const html = String(value || '');\r\n  const anchors = [];\r\n  const anchorRegex = /<a\\b[^>]*href=[\"']([^\"']+)[\"'][^>]*>([\\s\\S]*?)<\\/a>/gi;\r\n\r\n  for (const match of html.matchAll(anchorRegex)) {\r\n    anchors.push({\r\n      href: cleanUrl(match[1]),\r\n      text: stripHtml(match[2]),\r\n    });\r\n  }\r\n\r\n  return anchors;\r\n}\r\n\r\nfunction isHandshakeJobUrl(url) {\r\n  const clean = cleanUrl(url).toLowerCase();\r\n  return (\r\n    /^https?:\\/\\/email\\.notifications\\.joinhandshake\\.com\\/c\\//i.test(clean) ||\r\n    /^https?:\\/\\/[^/]*joinhandshake\\.com\\/(?:stu\\/)?jobs\\b/i.test(clean)\r\n  );\r\n}\r\n\r\nfunction extractHandshakeViewJobUrl(json) {\r\n  const html = firstString(json.html, json.textHtml, json.textAsHtml, json.body, json.message);\r\n  const anchors = extractHtmlAnchors(html);\r\n\r\n  const direct = anchors.find(anchor => /^view job$/i.test(clean(anchor.text)) && isHandshakeJobUrl(anchor.href));\r\n  if (direct?.href) return cleanUrl(direct.href);\r\n\r\n  const jobCard = anchors.find(anchor => {\r\n    const text = clean(anchor.text);\r\n    return (\r\n      isHandshakeJobUrl(anchor.href) &&\r\n      /view job|job|role|position|opening|apply|intern|internship|career|hiring/i.test(text)\n    );\r\n  });\r\n  if (jobCard?.href) return cleanUrl(jobCard.href);\r\n\r\n  const raw = collectUrlsFromText(html)\r\n    .map(candidate => cleanUrl(candidate.url))\r\n    .find(isHandshakeJobUrl);\r\n\r\n  return cleanUrl(raw || '');\r\n}\r\n\r\nfunction collectHandshakeUrls({ json, company, title }) {\r\n  const viewJobUrl = extractHandshakeViewJobUrl(json);\r\n  if (viewJobUrl) return viewJobUrl;\r\n\r\n  const anchors = extractHtmlAnchors(firstString(json.html, json.textHtml, json.textAsHtml, json.body, json.message));\r\n  const companyPattern = company ? new RegExp(company.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&'), 'i') : null;\r\n  const titlePattern = title ? new RegExp(title.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&'), 'i') : null;\r\n\r\n  const scored = anchors\r\n    .map(anchor => {\r\n      const text = clean(anchor.text);\r\n      let score = 0;\r\n      if (!anchor.href || isAssetOrUtilityUrl(anchor.href)) return { ...anchor, score: -1000 };\r\n      if (/^view job$/i.test(text)) score += 120;\r\n      if (/this new job/i.test(text)) score += 80;\r\n      if (companyPattern?.test(text)) score += 45;\r\n      if (titlePattern?.test(text)) score += 55;\r\n      if (/job|jobs|stu/i.test(anchor.href)) score += 35;\r\n      if (/joinhandshake\\.com/i.test(anchor.href)) score += 25;\r\n      if (/preference|unsubscribe|instagram|tiktok|app store|google play/i.test(text)) score -= 200;\r\n      if (/\\/u\\//i.test(anchor.href)) score -= 200;\r\n      return { ...anchor, score };\r\n    })\r\n    .filter(anchor => anchor.score > 0)\r\n    .sort((a, b) => b.score - a.score);\r\n\r\n  const best = scored[0]?.href || extractBestUrl('handshake', json.text, json.textPlain, json.html, json.textAsHtml, json.textHtml, json.body, json.message, json.snippet);\r\n  return cleanUrl(best || '');\r\n}\r\n\r\nfunction isHandshakeNoiseLine(line) {\r\n  return (\r\n    !line ||\r\n    /^apply early to stand out$/i.test(line) ||\r\n    /^want better job recommendations\\??$/i.test(line) ||\r\n    /^update your preferences\\.?$/i.test(line) ||\r\n    /^view job$/i.test(line) ||\r\n    /^instagram$/i.test(line) ||\r\n    /^x$/i.test(line) ||\r\n    /^tiktok$/i.test(line) ||\r\n    /^apple app store$/i.test(line) ||\r\n    /^google play store$/i.test(line) ||\r\n    /^handshake$/i.test(line) ||\r\n    /^p\\.o\\. box/i.test(line) ||\r\n    /^you received this email/i.test(line) ||\r\n    /^manage email preferences/i.test(line) ||\r\n    /^unsubscribe$/i.test(line) ||\r\n    /\\blogo$/i.test(line)\r\n  );\r\n}\r\n\r\nfunction parseHandshakeEmail({ json, subject, from, source }) {\r\n  const text = firstString(json.text, json.textPlain, json.snippet);\r\n  if (source !== 'handshake' || !text || !/view job|you might be a match|applications are due/i.test(text)) return [];\r\n\r\n  const lines = text\r\n    .replace(/\\r/g, '')\r\n    .split('\\n')\r\n    .map(line => clean(line))\r\n    .filter(Boolean);\r\n  const cleanLines = lines.filter(line => !isHandshakeNoiseLine(line));\r\n  const dueIndex = lines.findIndex(line => /^applications are due\\b/i.test(line));\r\n  const inlineDue = dueIndex >= 0 ? clean(lines[dueIndex].replace(/^applications are due\\s*/i, '')) : '';\r\n  const dueDate = inlineDue || (dueIndex >= 0 ? clean(lines[dueIndex + 1] || '') : '');\r\n  const viewJobIndex = lines.findIndex(line => /^view job$/i.test(line));\r\n  const detailCandidates = (viewJobIndex >= 0 ? lines.slice(0, viewJobIndex) : cleanLines)\r\n    .map(line => clean(line))\r\n    .filter(line => line && !isHandshakeNoiseLine(line))\r\n    .filter(line => !/^you might be a match/i.test(line))\r\n    .filter(line => !/^applications are due\\b/i.test(line))\r\n    .filter(line => line !== dueDate);\r\n\r\n  let detail = detailCandidates[detailCandidates.length - 1] || '';\r\n  let title = detailCandidates[detailCandidates.length - 2] || '';\r\n  let company = detailCandidates[detailCandidates.length - 3] || '';\r\n\r\n  const parsedSubject = splitTitleCompany(subject);\r\n  if (!title || /^(internship|full-time|part-time|contract|temporary)\\b/i.test(title)) title = parsedSubject.title;\r\n  if (!company) company = parsedSubject.company;\r\n\r\n  const detailParts = detail.split(/[•|]/).map(clean).filter(Boolean);\r\n  const jobType = detailParts[0] || '';\r\n  const location = detailParts.slice(1).join(' / ') || (/\\bremote\\b/i.test(detail) ? 'Remote' : '');\r\n  const url = collectHandshakeUrls({ json, company, title });\r\n  const dueText = dueDate ? `Applications due ${dueDate}` : '';\r\n  const description = [title, company, location, jobType, dueText].filter(Boolean).join(' | ');\r\n\r\n  if (!company || !title) return [];\r\n  return [makeJob({ json, subject, from, source, title, company, location, url, description })];\r\n}\r\n\r\nfunction parseFallbackEmail({ json, subject, from, source }) {\r\n  const body = firstString(\r\n    json.text,\r\n    json.textPlain,\r\n    json.html,\r\n    json.textAsHtml,\r\n    json.textHtml,\r\n    json.body,\r\n    json.message,\r\n    json.snippet,\r\n  );\r\n\r\n  const parsed = splitTitleCompany(subject);\r\n\r\n  const title = clean(parsed.title)\r\n    .replace(/^(Job alert|Handshake|LinkedIn|ZipRecruiter|Glassdoor|Jobright):\\s*/i, '')\r\n    .replace(/\\bnew jobs?\\b.*$/i, '')\r\n    .replace(/\\s+:?\\s*Actively recruiting\\s*$/i, '')\r\n    .trim();\r\n\r\n  const company = clean(parsed.company)\r\n    .replace(/\\s+:?\\s*Actively recruiting\\s*$/i, '')\r\n    .replace(/\\b(is hiring|hiring now|posted).*$/i, '')\r\n    .trim();\r\n\r\n  const url = extractBestUrl(source, json.text, json.textPlain, json.html, json.textAsHtml, json.textHtml, json.body, json.message, json.snippet);\r\n  const description = clean(body).slice(0, 1200);\r\n\r\n  return makeJob({ json, subject, from, source, title, company, location: '', url, description });\r\n}\r\n\r\nconst seen = new Set();\r\nconst output = [];\r\n\r\nfor (const item of items) {\r\n  const json = item.json || {};\r\n  const subject = firstString(json.Subject, json.subject, json.headers?.subject);\r\n  const from = firstString(json.From, json.from, json.sender, json.headers?.from);\r\n  const source = sourceFor({ from, subject });\r\n  const linkedinJobs = parseLinkedInDigest({ json, subject, from, source });\r\n  const jobrightJobs = parseJobrightDigest({ json, subject, from, source });\r\n  const handshakeJobs = parseHandshakeEmail({ json, subject, from, source });\r\n  const zipRecruiterJobs = parseZipRecruiterDigest({ json, subject, from, source });\r\n  const glassdoorJobs = parseGlassdoorDigest({ json, subject, from, source });\r\n  const parsedJobs = [...linkedinJobs, ...jobrightJobs, ...handshakeJobs, ...zipRecruiterJobs, ...glassdoorJobs];\r\n\r\n  output.push(...(parsedJobs.length ? parsedJobs : [parseFallbackEmail({ json, subject, from, source })]));\r\n}\r\n\r\nreturn output\r\n  .filter(item => {\r\n    const { title, subject, description, job_key, company } = item.json;\r\n    const lowerTitle = String(title || '').toLowerCase();\n    const lowerCompany = String(company || '').toLowerCase();\n    const haystack = `${title} ${subject} ${description}`.toLowerCase();\n    const hasGoodKeyword = GOOD_KEYWORDS.some(keyword => haystack.includes(keyword));\n    const hasStrongTechKeyword = STRONG_TECH_KEYWORDS.some(keyword => haystack.includes(keyword));\n    const titleLooksTechnical = STRONG_TECH_KEYWORDS.some(keyword => lowerTitle.includes(keyword));\n\r\n    if (!title || title.length < 4) return false;\r\n    if (title.length > 160) return false;\r\n    if (/https?:\\/\\//i.test(title) || /https?:\\/\\//i.test(company || '')) return false;\r\n    if (BLOCKED_TITLE_PARTS.some(part => lowerTitle.includes(part))) return false;\r\n    if (/top job picks|recommended jobs|new recommended jobs|based on your profile/i.test(`${title} ${company}`)) return false;\r\n    if (\n      !/ziprecruiter|glassdoor|jobright/i.test(String(item.json.source || '')) &&\n      BLOCKED_SUBJECT_PATTERNS.some(pattern => pattern.test(String(subject || ''))) &&\n      !titleLooksTechnical &&\n      !/\\b(intern|internship|co-op|apprentice|new grad|entry level)\\b/i.test(lowerTitle)\n    ) return false;\n\r\n    if (/^a\\s+\\d+%$/i.test(title)) return false;\r\n    if (/^your top$/i.test(title)) return false;\r\n    if (/^latest$/i.test(title)) return false;\r\n    if (/new recommended jobs|based on your profile|promoted jobs/i.test(lowerCompany)) return false;\r\n    if (!company && /ziprecruiter|glassdoor/i.test(String(item.json.source || ''))) return false;\r\n\r\n    if (!hasGoodKeyword && !hasStrongTechKeyword) return false;\n    if (seen.has(job_key)) return false;\r\n\r\n    seen.add(job_key);\r\n    return true;\r\n  })\r\n  .sort((a, b) => b.json.fit_score - a.json.fit_score);\r\n"
+      },
+      "id": "07312d6e-6a7e-4ef3-9e0c-6ba586c8a7d0",
+      "name": "Normalize and score jobs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        416,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list",
+          "cachedResultName": "Select your Job Pipeline sheet"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "",
+          "mode": "list",
+          "cachedResultName": "Sheet1"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "date_found": "={{ $json.date_found }}",
+            "company": "={{ $json.company }}",
+            "title": "={{ $json.title }}",
+            "location": "={{ $json.location }}",
+            "url": "={{ $json.url }}",
+            "source": "={{ $json.source }}",
+            "description": "={{ $json.description }}",
+            "fit_score": "={{ $json.fit_score }}",
+            "priority": "={{ $json.priority }}",
+            "resume_variant": "={{ $json.resume_variant }}",
+            "status": "={{ $json.status }}",
+            "follow_up_date": "={{ $json.follow_up_date }}",
+            "notes": "={{ $json.notes }}",
+            "job_key": "={{ $json.job_key }}"
+          },
+          "matchingColumns": [
+            "job_key"
+          ],
+          "schema": [
+            {
+              "id": "date_found",
+              "displayName": "date_found",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "company",
+              "displayName": "company",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "title",
+              "displayName": "title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "location",
+              "displayName": "location",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "url",
+              "displayName": "url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "source",
+              "displayName": "source",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "description",
+              "displayName": "description",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "fit_score",
+              "displayName": "fit_score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "priority",
+              "displayName": "priority",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "resume_variant",
+              "displayName": "resume_variant",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "follow_up_date",
+              "displayName": "follow_up_date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "notes",
+              "displayName": "notes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "job_key",
+              "displayName": "job_key",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "0044a0fb-81d3-4e76-9d27-f8637f546689",
+      "name": "Append or update row in sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        3536,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const enableTotalLimit = false;\nconst totalLimit = 45;\nconst sourceCaps = {\n  linkedin: 20,\n  jobright: 8,\n  ziprecruiter: 5,\n  glassdoor: 7,\n  handshake: 5,\n  gmail: 3,\n};\n\r\nconst browserFetchSources = new Set(['linkedin', 'glassdoor', 'jobright', 'handshake', 'gmail']);\r\nconst sorted = [...items].sort((a, b) => Number(b.json.fit_score || 0) - Number(a.json.fit_score || 0));\r\nconst selected = [];\nconst selectedKeys = new Set();\nconst sourceCounts = {};\nlet browserFetchIndex = 0;\n\r\nfunction addItem(item, enforceCap) {\r\n  const key = item.json.job_key || JSON.stringify(item.json);\n  if (selectedKeys.has(key)) return false;\n  if (enableTotalLimit && selected.length >= totalLimit) return false;\n\r\n  const source = item.json.source || 'gmail';\r\n  const cap = sourceCaps[source] || 3;\r\n  if (enforceCap && (sourceCounts[source] || 0) >= cap) return false;\r\n\r\n  const url = String(item.json.url || '').trim();\r\n  const shouldFetch = browserFetchSources.has(source) && /^https?:\\/\\//i.test(url);\r\n  selected.push({\n    json: {\n      ...item.json,\n      browser_fetch_index: browserFetchIndex++,\n      browser_fetch_url: shouldFetch ? url : '',\n      browser_fetch_skip_reason: shouldFetch\n        ? ''\n        : source === 'ziprecruiter'\r\n          ? 'ziprecruiter_cloudflare'\r\n          : 'no_fetchable_url',\r\n    },\r\n  });\r\n  selectedKeys.add(key);\r\n  sourceCounts[source] = (sourceCounts[source] || 0) + 1;\r\n  return true;\r\n}\r\n\r\nif (enableTotalLimit) {\n  for (const item of sorted) addItem(item, true);\n  for (const item of sorted) addItem(item, false);\n} else {\n  for (const item of sorted) addItem(item, false);\n}\n\nreturn selected;\n"
+      },
+      "id": "811b6b81-e39d-4d0c-8b25-97f8706a76c4",
+      "name": "Limit jobs for browser fetch",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1248,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const GOOD_KEYWORDS = [\n  'job',\n  'jobs',\n  'role',\n  'position',\n  'opening',\n  'career',\n  'careers',\n  'hiring',\n  'apply',\n  'intern',\n  'internship',\n  'co-op',\n  'entry level',\n  'new grad',\n  'full-time',\n  'part-time',\n  'remote',\n  'hybrid',\n  'onsite',\n];\n\r\nfunction clean(value) {\n  return String(value || '')\n    .replace(/\\u00a0/g, ' ')\n    .replace(/\\s+/g, ' ')\n    .trim();\n}\n\nfunction cleanUrlSlug(value) {\n  return clean(value)\n    .toLowerCase()\n    .replace(/[^a-z0-9]+/g, '-')\n    .replace(/^-+|-+$/g, '');\n}\n\nfunction looksLikeLocation(value) {\n  return /^(?:remote|hybrid|onsite|on-site|united states|usa|[a-z .'-]+,\\s*[A-Z]{2}|[a-z .'-]+,\\s*(?:michigan|illinois|california|new york|north carolina|texas|washington)|delhi(?:,\\s*mi)?|new york,\\s*ny|chicago,\\s*il)$/i.test(clean(value));\n}\n\nfunction extractLocationFromExcerpt(excerpt, title, company) {\n  const lines = String(excerpt || '')\n    .replace(/\\r/g, '')\n    .split('\\n')\n    .map(clean)\n    .filter(Boolean);\n  const titleIndex = lines.findIndex(line => line === clean(title));\n  const companyIndex = lines.findIndex(line => line === clean(company));\n  const start = Math.max(titleIndex, companyIndex);\n\n  for (const line of lines.slice(start >= 0 ? start + 1 : 0, start >= 0 ? start + 8 : 12)) {\n    const location = clean(line.split('·')[0]);\n    if (looksLikeLocation(location)) return location;\n  }\n\n  return '';\n}\n\nfunction metadataFromBrowser(json) {\n  const pageTitle = clean(json.browser_page_title);\n  const source = clean(json.source).toLowerCase();\n\n  if (source === 'linkedin') {\n    const match = pageTitle.match(/^(.+?)\\s+\\|\\s+(.+?)\\s+\\|\\s+LinkedIn$/i);\n    if (match) {\n      return {\n        title: clean(match[1]),\n        company: clean(match[2]),\n        location: extractLocationFromExcerpt(json.browser_excerpt, match[1], match[2]),\n        source: 'linkedin_page_title',\n      };\n    }\n  }\n\n  if (source === 'glassdoor') {\n    const match = pageTitle.match(/^(.+?)\\s+hiring\\s+(.+?)\\s+Job in\\s+(.+?)\\s+\\|\\s+Glassdoor$/i);\n    if (match) {\n      const shiftedLocation = looksLikeLocation(json.title) ? clean(json.title) : '';\n      return {\n        company: clean(match[1]),\n        title: clean(match[2]),\n        location: shiftedLocation || extractLocationFromExcerpt(json.browser_excerpt, match[2], match[1]) || clean(match[3]),\n        source: 'glassdoor_page_title',\n      };\n    }\n  }\n\n  return null;\n}\n\nfunction shouldUseBrowserMetadata(json, metadata) {\n  if (!metadata || clean(json.browser_fetch_status) !== 'ok') return false;\n\n  const source = clean(json.source).toLowerCase();\n  const title = clean(json.title);\n  const company = clean(json.company);\n  const location = clean(json.location);\n\n  if (source === 'linkedin') {\n    return (\n      !title ||\n      !company ||\n      looksLikeLocation(company) ||\n      /^\\d+\\s+connection/i.test(location) ||\n      /^\\d+\\s+school alum/i.test(location) ||\n      title.length < 8 ||\n      company.length < 3\n    );\n  }\n\n  if (source === 'glassdoor') {\n    return (\n      /^best places? to work$/i.test(location) ||\n      looksLikeLocation(title) ||\n      /^(easy apply|actively hiring|just posted|avatar)$/i.test(title) ||\n      !company ||\n      !title\n    );\n  }\n\n  return false;\n}\n\nfunction correctedMetadata(json) {\n  const metadata = metadataFromBrowser(json);\n  if (!shouldUseBrowserMetadata(json, metadata)) return { json, note: '' };\n\n  const corrected = {\n    ...json,\n    title: metadata.title || json.title,\n    company: metadata.company || json.company,\n    location: metadata.location || json.location,\n  };\n  corrected.job_key = cleanUrlSlug(`${corrected.source}-${corrected.company || 'unknown'}-${corrected.title}-${corrected.location || ''}`);\n\n  return {\n    json: corrected,\n    note: `Metadata corrected from ${metadata.source}.`,\n  };\n}\n\r\nfunction usableBrowserDescription(item) {\r\n  if (item.browser_fetch_status && item.browser_fetch_status !== 'ok') return '';\r\n\r\n  const text = clean(item.browser_description);\r\n  if (text.length < 180) return '';\r\n\r\n  const lower = text.toLowerCase();\r\n  const likelyPromo =\r\n    lower.includes('join a growing community of professionals advancing the next wave of ai') &&\r\n    !lower.includes(String(item.company || '').toLowerCase());\r\n  const badPage =\r\n    /accessdenied|access denied|this xml file does not appear to have any style information|<Error>|<\\/Error>/i.test(text) ||\r\n    /^AccessDenied\\s*Access Denied/i.test(text) ||\r\n    /security verification|verifies? you are not a bot|malicious bots|performance and security by cloudflare|ray id:/i.test(text);\r\n\r\n  if (likelyPromo || badPage) return '';\r\n  return text;\r\n}\r\n\r\nfunction fitFor(item, description) {\r\n  const lower = [\r\n    item.title,\r\n    item.company,\r\n    item.location,\r\n    description,\r\n    item.subject,\r\n  ]\r\n    .join('\\n')\r\n    .toLowerCase();\r\n\r\n  const keywordHits = GOOD_KEYWORDS.filter(keyword => lower.includes(keyword)).length;\n  let score = 35;\n\n  if (clean(item.title)) score += 6;\n  if (clean(item.company)) score += 6;\n  if (clean(item.location)) score += 3;\n  if (/^https?:\\/\\//i.test(clean(item.url))) score += 4;\n  if (description && description.length >= 180) score += 8;\n  if (description && description.length >= 800) score += 4;\n  score += Math.min(keywordHits, 8) * 2;\n\n  if (!description || description.length < 80) score -= 8;\n  if (/unsubscribe|manage alerts?|email preferences|privacy policy/i.test(lower)) score -= 8;\n\n  return Math.max(0, Math.min(72, score));\n}\n\r\nfunction priorityFor(score) {\r\n  if (score >= 80) return 'high';\r\n  if (score >= 65) return 'medium';\r\n  return 'low';\r\n}\r\n\r\nreturn items\n  .map(item => {\n    const correction = correctedMetadata(item.json || {});\n    const json = correction.json;\n    const browserDescription = usableBrowserDescription(json);\n    const emailDescription = clean(json.description);\r\n    const bestDescription = browserDescription || emailDescription;\r\n    const jobClosed = Boolean(json.browser_job_closed);\r\n    const baseFitScore = fitFor(json, bestDescription);\r\n    const fit_score = jobClosed ? Math.min(baseFitScore, 20) : baseFitScore;\r\n    const priority = jobClosed ? 'low' : priorityFor(fit_score);\r\n    const confidence = browserDescription ? 'higher' : 'lower';\r\n    const fetchStatus = json.browser_fetch_status || 'not_run';\r\n    const fetchSkipReason = clean(json.browser_fetch_skip_reason);\r\n    const fetchError = clean(json.browser_error).slice(0, 180);\r\n    let fetchNote = `Browser description unavailable (${fetchStatus}${fetchError ? `: ${fetchError}` : ''}).`;\r\n    if (fetchStatus === 'ok' && browserDescription) {\r\n      fetchNote = 'Browser description extracted.';\r\n    } else if (fetchStatus === 'ok') {\r\n      fetchNote = 'Browser description rejected as non-job or low-value page.';\r\n    } else if (fetchStatus === 'no_url' && fetchSkipReason === 'ziprecruiter_cloudflare') {\r\n      fetchNote = 'Browser description skipped for ZipRecruiter: Cloudflare blocks automated page fetches.';\r\n    } else if (fetchStatus === 'no_url') {\r\n      fetchNote = 'Browser description skipped: no URL extracted.';\r\n    } else if (fetchStatus === 'asset_url') {\r\n      fetchNote = 'Browser description skipped: extracted URL was an asset.';\r\n    } else if (fetchStatus === 'access_denied') {\r\n      fetchNote = 'Browser description skipped: target returned AccessDenied.';\r\n    }\r\n    if (jobClosed) {\r\n      fetchNote += ' Jobright says this job has closed.';\r\n    }\r\n\r\n    return {\r\n      json: {\r\n        ...json,\r\n        description: bestDescription.slice(0, 3000),\r\n        description_source: browserDescription ? json.browser_description_source || 'browser' : json.description_source || 'email',\r\n        fit_score,\r\n        priority,\r\n        status: jobClosed ? 'closed' : json.status || 'new',\r\n        ai_confidence: confidence,\r\n        ai_context: [\r\n          `Title: ${json.title || ''}`,\r\n          `Company: ${json.company || ''}`,\r\n          `Location: ${json.location || ''}`,\r\n          `URL: ${json.url || ''}`,\r\n          `Source: ${json.source || ''}`,\r\n          `Description source: ${browserDescription ? 'browser-rendered page' : 'email summary only'}`,\r\n          '',\r\n          bestDescription,\r\n        ].join('\\n').slice(0, 5000),\r\n        notes: `${json.notes || ''}${correction.note ? ` | ${correction.note}` : ''} | ${fetchNote} AI confidence: ${confidence}`,\n      },\n    };\n  })\n  .sort((a, b) => Number(b.json.fit_score || 0) - Number(a.json.fit_score || 0));\r\n"
+      },
+      "id": "acb3c257-467e-4337-bc96-48c9c2dbbaef",
+      "name": "Finalize job rows",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2496,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "function clean(value) {\n  return String(value || '')\n    .replace(/\\u00a0/g, ' ')\n    .replace(/\\s+/g, ' ')\n    .trim();\n}\n\nfunction cleanProfile(value) {\n  return String(value || '')\n    .replace(/\\u00a0/g, ' ')\n    .replace(/\\r\\n/g, '\\n')\n    .replace(/[ \\t]+\\n/g, '\\n')\n    .replace(/\\n{4,}/g, '\\n\\n\\n')\n    .trim();\n}\n\nfunction section(label, value) {\n  const text = clean(value);\n  return text ? `${label}: ${text}` : `${label}:`;\n}\n\nfunction truncate(value, length) {\n  const text = clean(value);\n  return text.length > length ? `${text.slice(0, length - 3)}...` : text;\n}\n\nreturn items.map(item => {\n  const json = item.json || {};\n  const profileConfig = cleanProfile(json.ai_profile_config);\n  const profileStatus = clean(json.ai_profile_status);\n  const profileWarning = profileConfig\n    ? ''\n    : `WARNING: profile.md was not available from the local fetch server${\n        profileStatus ? ` (status: ${profileStatus})` : ''\n      }${json.ai_profile_error ? `: ${clean(json.ai_profile_error)}` : ''}.`;\n\n  const prompt = [\n    '/no_think',\n    'You are a strict JSON scoring function. Return exactly one raw JSON object and nothing else.',\n    'Do not include markdown, code fences, comments, explanations, analysis, chain-of-thought, or text before/after the JSON.',\n    'Every required key must be present. Use double quotes for all JSON strings. Do not use trailing commas.',\n    'fit_score must be an integer number, not a string.',\n    'priority must be exactly one of: high, medium, low.',\n    'recommendation must be exactly one of: apply, consider, skip.',\n    'confidence must be exactly one of: high, medium, low.',\n    'strengths and risks must be arrays of strings, even if there is only one item.',\n    'resume_variant must be a non-empty string such as software, data, ml, security, general, or none.',\n    '',\n    'Review this job for the candidate using only the candidate profile and ranking config below.',\n    'The candidate profile is the single source of truth for target roles, skills, locations, constraints, avoid rules, salary preferences, and resume/customization angles.',\n    'Do not assume candidate-specific facts that are not in the profile.',\n    'The deterministic score is only a crude extraction/routing baseline, not a recommendation. Do not copy it or anchor on it.',\n    'Use the full 0-100 scale from the profile score calibration. Do not default to 85.',\n    'Scores of 85 or higher must be rare and reserved for clearly excellent matches with concrete evidence.',\n    'Apply any ranking rules, strict decision guidance, caps, and daily-output preferences in the profile exactly.',\n    'Be strict about jobs the profile says to avoid, seniority/experience mismatches, unpaid roles, vague postings, closed jobs, and clearly unmet requirements.',\n    'Be decisive. Use \"skip\" for weak, noisy, backup-only, stale, senior, unrelated, or barely relevant jobs. Use \"consider\" only when the job is genuinely worth manual review. Use \"apply\" only for clearly strong apply-now matches.',\n    'Do not reward or penalize a job just because of the email source. Jobright match percentages, Glassdoor badges, LinkedIn connection counts, promoted labels, and similar source-specific marketing text are not candidate evidence.',\n    'If the title/company/location metadata appears polluted but the browser-rendered description reveals the real role, score the real role and mention the metadata risk briefly.',\n    'Use the full description when available. If the description is only an email snippet, lower confidence instead of guessing.',\n    'Treat preferred qualifications lightly. Penalize required qualifications that the profile clearly does not satisfy.',\n    'Choose resume_variant as a short label from the profile if it defines resume variants or role angles; otherwise use \"general\" or \"none\".',\n    'Return only the structured JSON object requested by the parser.',\n    '',\n    'PROFILE CONFIG FROM profile.md:',\n    profileConfig || profileWarning || 'No profile config was provided.',\n    '',\n    section('Title', json.title),\n    section('Company', json.company),\n    section('Location', json.location),\n    section('URL', json.url),\n    section('Source', json.source),\n    section('Crude extraction/routing fit_score; do not anchor on this', json.fit_score),\n    section('Crude extraction/routing priority; do not anchor on this', json.priority),\n    section('Status', json.status),\n    section('Description source', json.description_source),\n    section('Browser/description confidence', json.ai_confidence),\n    '',\n    'Job description:',\n    truncate(json.ai_context || json.description, 5200),\n    '',\n    'Existing notes:',\n    truncate(json.notes, 700),\n    '',\n    'Decide the final score and recommendation.',\n    '',\n    'Return exactly this JSON shape with your final values:',\n    '{',\n    '  \"fit_score\": 0,',\n    '  \"priority\": \"low\",',\n    '  \"recommendation\": \"skip\",',\n    '  \"resume_variant\": \"none\",',\n    '  \"confidence\": \"low\",',\n    '  \"reason\": \"One concise sentence explaining the score.\",',\n    '  \"strengths\": [\"One concrete match reason.\"],',\n    '  \"risks\": [\"One concrete concern or missing-fit reason.\"]',\n    '}',\n  ].join('\\n');\n\n  return {\n    json: {\n      ...json,\n      ai_prompt: prompt,\n      ai_profile_config: profileConfig,\n      ai_profile_warning: profileWarning,\n    },\n  };\n});\n"
+      },
+      "id": "e048d7fa-e2fc-47fa-b557-9b49c68fed35",
+      "name": "Prepare AI job review",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2704,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.ai_prompt }}",
+        "hasOutputParser": false,
+        "batching": {
+          "batchSize": 1,
+          "delayBetweenBatches": 0
+        }
+      },
+      "id": "57990ed8-e9c5-45aa-a996-0c60269dea55",
+      "name": "AI Decision - score with profile",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        2912,
+        0
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "model": "qwen3:8b",
+        "options": {
+          "temperature": 0,
+          "topP": 1,
+          "numCtx": 8192,
+          "numPredict": 1000,
+          "repeatPenalty": 1.1,
+          "keepAlive": "10m",
+          "format": "json"
+        }
+      },
+      "id": "f091783c-918d-4e8a-ac31-195fde7e7231",
+      "name": "Ollama Job Fit Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [
+        2864,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"fit_score\": {\n      \"type\": \"integer\",\n      \"minimum\": 0,\n      \"maximum\": 100,\n      \"description\": \"Final profile-based fit score for the candidate from 0 to 100.\"\n    },\n    \"priority\": {\n      \"type\": \"string\",\n      \"enum\": [\n        \"high\",\n        \"medium\",\n        \"low\"\n      ],\n      \"description\": \"high for strong apply-now matches, medium for possible matches, low for weak or skip matches.\"\n    },\n    \"recommendation\": {\n      \"type\": \"string\",\n      \"enum\": [\n        \"apply\",\n        \"consider\",\n        \"skip\"\n      ],\n      \"description\": \"Final action recommendation for this job.\"\n    },\n    \"resume_variant\": {\n      \"type\": \"string\",\n      \"minLength\": 1,\n      \"maxLength\": 40,\n      \"description\": \"Short resume or application angle from the candidate profile when available, otherwise general or none.\"\n    },\n    \"confidence\": {\n      \"type\": \"string\",\n      \"enum\": [\n        \"high\",\n        \"medium\",\n        \"low\"\n      ],\n      \"description\": \"Confidence in the decision based on the profile match and available description quality.\"\n    },\n    \"reason\": {\n      \"type\": \"string\",\n      \"description\": \"One concise sentence explaining the score using the profile criteria.\"\n    },\n    \"strengths\": {\n      \"type\": \"array\",\n      \"items\": {\n        \"type\": \"string\"\n      },\n      \"description\": \"One to three concrete reasons this job matches the profile.\"\n    },\n    \"risks\": {\n      \"type\": \"array\",\n      \"items\": {\n        \"type\": \"string\"\n      },\n      \"description\": \"One to three concrete concerns, penalties, or missing-fit reasons.\"\n    }\n  },\n  \"required\": [\n    \"fit_score\",\n    \"priority\",\n    \"recommendation\",\n    \"resume_variant\",\n    \"confidence\",\n    \"reason\",\n    \"strengths\",\n    \"risks\"\n  ],\n  \"additionalProperties\": false\n}",
+        "autoFix": false
+      },
+      "id": "9e25e42f-825c-4b6b-82b2-e745cf9aa47c",
+      "name": "Structured Job Fit Output",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        2864,
+        -240
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {
+          "clashHandling": {
+            "values": {
+              "resolveClash": "preferLast"
+            }
+          }
+        }
+      },
+      "id": "e10d8f5c-3674-4591-a8bf-54b403ce4bad",
+      "name": "Merge job and AI review",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        3136,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "function clean(value) {\r\n  return String(value || '')\r\n    .replace(/\\u00a0/g, ' ')\r\n    .replace(/\\s+/g, ' ')\r\n    .trim();\r\n}\r\n\r\nfunction clampScore(value, fallback) {\r\n  const score = Number(value);\r\n  if (!Number.isFinite(score)) return fallback;\r\n  return Math.max(0, Math.min(100, Math.round(score)));\r\n}\r\n\r\nfunction priorityFor(score, recommendation) {\n  if (recommendation === 'skip') return 'low';\n  if (recommendation === 'apply' && score >= 80) return 'high';\n  if (score >= 65) return 'medium';\n  return 'low';\n}\n\r\nfunction parseJsonText(value) {\n  const text = clean(value);\n  if (!text) return null;\n\r\n  try {\r\n    return JSON.parse(text);\r\n  } catch {}\r\n\r\n  const fenced = text.match(/```(?:json)?\\s*([\\s\\S]*?)```/i);\r\n  if (fenced) {\r\n    try {\r\n      return JSON.parse(fenced[1]);\r\n    } catch {}\r\n  }\r\n\r\n  const start = text.indexOf('{');\r\n  const end = text.lastIndexOf('}');\r\n  if (start !== -1 && end > start) {\r\n    try {\r\n      return JSON.parse(text.slice(start, end + 1));\r\n    } catch {}\r\n  }\r\n\n  return null;\n}\n\nfunction generationText(value) {\n  const generations = value?.generations;\n  if (!Array.isArray(generations)) return '';\n\n  for (const group of generations) {\n    const entries = Array.isArray(group) ? group : [group];\n    for (const entry of entries) {\n      const text = entry?.text ?? entry?.message?.content ?? entry?.content;\n      if (typeof text === 'string' && text.trim()) return text;\n    }\n  }\n\n  return '';\n}\n\nfunction hasReviewShape(value) {\n  return (\n    value &&\n    typeof value === 'object' &&\n    Object.prototype.hasOwnProperty.call(value, 'fit_score') &&\n    Object.prototype.hasOwnProperty.call(value, 'recommendation') &&\n    Object.prototype.hasOwnProperty.call(value, 'reason')\n  );\n}\n\nfunction coerceReview(value) {\n  if (!value) return null;\n  if (typeof value === 'string') return parseJsonText(value);\n  if (hasReviewShape(value)) return value;\n  if (typeof value !== 'object') return null;\n\n  const generatedText = generationText(value) || generationText(value.response);\n  if (generatedText) return parseJsonText(generatedText);\n\n  for (const key of ['output', 'text', 'response', 'content', 'message']) {\n    const nested = value[key];\n    if (!nested || nested === value) continue;\n    const parsed = coerceReview(nested);\n    if (parsed) return parsed;\n  }\n\n  return null;\n}\n\nfunction extractReview(json) {\n  if (json.error) {\n    return { valid: false, error: clean(json.error).slice(0, 220) || 'AI node returned an error.' };\n  }\n\n  const output = coerceReview(json);\n  if (!hasReviewShape(output)) {\n    return { valid: false, error: 'AI output was empty or not JSON.' };\n  }\n\n  return { valid: true, data: output };\n}\n\r\nfunction normalizeChoice(value, allowed, fallback) {\n  const normalized = clean(value).toLowerCase().replace(/[^a-z_ -]/g, '').replace(/\\s+/g, '_');\n  return allowed.includes(normalized) ? normalized : fallback;\n}\n\nfunction normalizeResumeVariant(value, fallback = 'general') {\n  const normalized = clean(value)\n    .toLowerCase()\n    .replace(/[^a-z0-9_ -]/g, '')\n    .replace(/\\s+/g, '_')\n    .replace(/^_+|_+$/g, '')\n    .slice(0, 40);\n\n  return normalized || fallback;\n}\n\nfunction list(value) {\n  if (Array.isArray(value)) return value.map(clean).filter(Boolean).slice(0, 3);\n  const text = clean(value);\n  return text ? [text] : [];\n}\n\r\nfunction appendNote(existing, note) {\n  const base = clean(existing);\r\n  const extra = clean(note);\r\n  if (!extra) return base;\r\n  const combined = base ? `${base} | ${extra}` : extra;\r\n  return combined.slice(0, 1400);\n}\n\nfunction decisiveRecommendation(rawRecommendation, score, json, confidence) {\n  const recommendation = normalizeChoice(rawRecommendation, ['apply', 'consider', 'skip'], 'skip');\n  const status = clean(json.status).toLowerCase();\n  const source = clean(json.source).toLowerCase();\n  const descriptionSource = clean(json.description_source).toLowerCase();\n\n  if (status === 'closed' || score <= 39) return 'skip';\n  if (score < 65) return 'skip';\n  if (confidence === 'low' && score < 75) return 'skip';\n  if ((source === 'ziprecruiter' || descriptionSource === 'email') && score < 75) return 'skip';\n  if (recommendation === 'skip') return 'skip';\n  if (score >= 80 && recommendation === 'apply') return 'apply';\n  if (score >= 80 && confidence === 'high') return 'apply';\n  return 'consider';\n}\n\nfunction calibratedScore(score, json, confidence) {\n  let calibrated = score;\n  const source = clean(json.source).toLowerCase();\n  const descriptionSource = clean(json.description_source).toLowerCase();\n\n  if ((source === 'ziprecruiter' || descriptionSource === 'email') && calibrated > 75) calibrated = 75;\n  if (confidence === 'low' && calibrated > 72) calibrated = 72;\n  if (json.status === 'closed') calibrated = Math.min(calibrated, 20);\n\n  return calibrated;\n}\n\r\nreturn items\r\n  .map(item => {\r\n    const json = item.json || {};\r\n    const baselineScore = clampScore(json.fit_score, 0);\r\n    const review = extractReview(json);\r\n\r\n    if (!review.valid) {\r\n      return {\r\n        json: {\r\n          ...json,\r\n          fit_score: baselineScore,\r\n          priority: json.priority || priorityFor(baselineScore, 'consider'),\r\n          notes: appendNote(json.notes, `AI review unavailable; kept deterministic score. ${review.error}`),\r\n        },\r\n      };\r\n    }\r\n\r\n    const data = review.data;\n    const rawScore = clampScore(data.fit_score, baselineScore);\n    const confidence = normalizeChoice(data.confidence, ['high', 'medium', 'low'], json.ai_confidence || 'medium');\n    const aiScore = calibratedScore(rawScore, json, confidence);\n    const recommendation = decisiveRecommendation(data.recommendation, aiScore, json, confidence);\n    const finalPriority = priorityFor(aiScore, recommendation);\n    const resumeVariant = normalizeResumeVariant(data.resume_variant, json.resume_variant || 'general');\n    const reason = clean(data.reason).slice(0, 280) || 'No concise reason returned.';\n    const strengths = list(data.strengths);\r\n    const risks = list(data.risks);\r\n    const details = [\r\n      `AI ${recommendation}/${finalPriority}/${aiScore}: ${reason}`,\r\n      strengths.length ? `Strengths: ${strengths.join('; ')}` : '',\r\n      risks.length ? `Risks: ${risks.join('; ')}` : '',\r\n    ].filter(Boolean).join(' ');\r\n\r\n    return {\r\n      json: {\r\n        ...json,\r\n        fit_score: aiScore,\n        priority: finalPriority,\n        resume_variant: recommendation === 'skip' || resumeVariant === 'none' ? '' : resumeVariant,\n        status: json.status === 'closed' ? 'closed' : json.status || 'new',\r\n        notes: appendNote(json.notes, details),\r\n        ai_recommendation: recommendation,\r\n        ai_reason: reason,\r\n        ai_score: aiScore,\r\n        ai_confidence: confidence,\r\n        ai_review_valid: true,\r\n      },\r\n    };\r\n  })\r\n  .sort((a, b) => Number(b.json.fit_score || 0) - Number(a.json.fit_score || 0));\r\n"
+      },
+      "id": "e72583c6-6967-4cc4-ba38-9b6940f42df0",
+      "name": "Apply AI job review",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3328,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "append"
+      },
+      "id": "a4177118-f2cc-4408-b56b-d751d415b6f0",
+      "name": "Append selected jobs and browser data",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        2080,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const originals = [];\nconst browserByKey = new Map();\n\nfor (const item of items) {\n  const json = item.json || {};\n  const key = String(json.job_key || '').trim();\n\n  if (json.browser_fetch_record_type === 'browser') {\n    if (key) browserByKey.set(key, json);\n    continue;\n  }\n\n  originals.push(json);\n}\n\nfunction browserFallbackFor(original) {\n  const status = original.browser_fetch_url ? 'missing_fetch_result' : 'no_url';\n  return {\n    browser_fetch_status: status,\n    browser_description: '',\n    browser_description_source: '',\n    browser_page_title: '',\n    browser_final_url: '',\n    browser_job_closed: false,\n    browser_excerpt: '',\n    browser_error: status === 'missing_fetch_result'\n      ? 'No browser fetch result was returned for this job.'\n      : 'Browser fetch skipped.',\n    browser_fetched_at: new Date().toISOString(),\n    ai_profile_config: '',\n    ai_profile_path: '',\n    ai_profile_status: '',\n    ai_profile_error: '',\n  };\n}\n\nreturn originals\n  .sort((a, b) => Number(a.browser_fetch_index ?? 0) - Number(b.browser_fetch_index ?? 0))\n  .map(original => {\n    const browser = browserByKey.get(String(original.job_key || '').trim()) || browserFallbackFor(original);\n    const {\n      browser_fetch_record_type,\n      browser_fetch_source,\n      ...browserFields\n    } = browser;\n\n    return {\n      json: {\n        ...original,\n        ...browserFields,\n      },\n    };\n  });\n"
+      },
+      "id": "55b730c0-9dde-4229-853d-84ce52101e09",
+      "name": "Merge job and browser data by key",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2288,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const jobs = items\n  .map(item => {\n    const json = item.json || {};\n    return {\n      job_key: json.job_key || '',\n      source: json.source || '',\n      browser_fetch_index: json.browser_fetch_index ?? '',\n      browser_fetch_url: json.browser_fetch_url || '',\n    };\n  })\n  .filter(job => job.job_key);\n\nreturn [{\n  json: {\n    batch_source: 'all',\n    browser_fetch_batch_count: jobs.length,\n    fetchable_job_count: jobs.filter(job => String(job.browser_fetch_url || '').trim()).length,\n    jobs,\n  },\n}];\n"
+      },
+      "id": "6c4a90f7-3f6c-4d25-9ccb-3aa0af7643a3",
+      "name": "Build browser fetch batch",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1456,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:3456/fetch-batch",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ source: \"all\", jobs: $json.jobs || [] }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 3600000
+        }
+      },
+      "id": "0ae91b43-66b6-4261-ad94-a275854538e2",
+      "name": "Fetch browser fetch batch",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1664,
+        -80
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "function browserRow(parsed = {}) {\n  return {\n    json: {\n      browser_fetch_record_type: 'browser',\n      job_key: parsed.job_key || '',\n      browser_fetch_index: parsed.browser_fetch_index ?? '',\n      browser_fetch_source: parsed.browser_fetch_source || parsed.source || '',\n      browser_fetch_status: parsed.status || 'unknown',\n      browser_description: parsed.description || '',\n      browser_description_source: parsed.description_source || '',\n      browser_page_title: parsed.page_title || '',\n      browser_final_url: parsed.final_url || parsed.url || '',\n      browser_job_closed: Boolean(parsed.job_closed || parsed.jobClosed),\n      browser_excerpt: parsed.visible_text_excerpt || '',\n      browser_error: parsed.error || parsed.message || '',\n      browser_fetched_at: parsed.fetched_at || '',\n      ai_profile_config: parsed.profile_config || '',\n      ai_profile_path: parsed.profile_path || '',\n      ai_profile_status: parsed.profile_status || '',\n      ai_profile_error: parsed.profile_error || '',\n    },\n  };\n}\n\nfunction emptyBatchRow() {\n  return browserRow({\n    status: 'empty_batch',\n    error: 'No browser fetch rows were returned for this batch.',\n    fetched_at: new Date().toISOString(),\n  });\n}\n\nfunction parseStdoutRow(item) {\n  const stdout = String(item.json.stdout || '').trim();\n  const stderr = String(item.json.stderr || '').trim();\n\n  try {\n    return browserRow(stdout ? JSON.parse(stdout) : {});\n  } catch (error) {\n    return browserRow({\n      status: 'parse_error',\n      error: `Could not parse browser helper stdout: ${error.message}`,\n      raw_stdout: stdout.slice(0, 1000),\n      stderr,\n    });\n  }\n}\n\nconst output = [];\n\nfor (const item of items) {\n  const json = item.json || {};\n\n  if (Array.isArray(json.results)) {\n    const batchProfile = {\n      profile_config: json.profile_config || '',\n      profile_path: json.profile_path || '',\n      profile_status: json.profile_status || '',\n      profile_error: json.profile_error || '',\n    };\n\n    for (const result of json.results) {\n      output.push(browserRow({\n        ...batchProfile,\n        ...result,\n      }));\n    }\n    continue;\n  }\n\n  if (json.status || json.description || json.description_source || json.error || json.message) {\n    output.push(browserRow(json));\n    continue;\n  }\n\n  output.push(parseStdoutRow(item));\n}\n\nreturn output.length ? output : [emptyBatchRow()];\n"
+      },
+      "id": "5e5d8fb1-4a9c-4a41-b4d2-5d605882ce4d",
+      "name": "Parse browser fetch batch output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1872,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "sheet",
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list",
+          "cachedResultName": "Select your Job Pipeline sheet"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "",
+          "mode": "list",
+          "cachedResultName": "Sheet1"
+        },
+        "filtersUI": {},
+        "combineFilters": "OR",
+        "options": {
+          "dataLocationOnSheet": {
+            "values": {
+              "rangeDefinition": "detectAutomatically",
+              "readRowsUntil": "lastRowInSheet"
+            }
+          }
+        }
+      },
+      "id": "fe2d5695-5fa1-4d0f-a4bc-3a3ecddae2c0",
+      "name": "Get existing sheet rows",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        416,
+        -240
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "return items.map(item => ({\n  json: {\n    ...item.json,\n    sheet_memory_record_type: 'existing_sheet_row',\n  },\n}));\n"
+      },
+      "id": "6c68aadc-2f5e-4649-aaf7-8df2e53ca104",
+      "name": "Mark existing sheet rows",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        624,
+        -240
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "append"
+      },
+      "id": "3ca7f988-db90-4ff7-88ba-547a6097b83a",
+      "name": "Append normalized jobs and sheet memory",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        832,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const REPROCESS_STATUSES = new Set(['refresh', 'rescore', 'retry', 'rerun']);\nconst SOURCE_RANK = {\n  linkedin: 6,\n  jobright: 5,\n  glassdoor: 4,\n  handshake: 4,\n  gmail: 2,\n  ziprecruiter: 1,\n};\n\nfunction clean(value) {\n  return String(value || '')\n    .replace(/\\u00a0/g, ' ')\n    .replace(/\\s+/g, ' ')\n    .trim();\n}\n\nfunction normalizeText(value) {\n  return clean(value)\n    .toLowerCase()\n    .replace(/\\b(incorporated|inc|llc|ltd|corp|corporation|company|co)\\b\\.?/g, ' ')\n    .replace(/\\b(the|a|an)\\b/g, ' ')\n    .replace(/&/g, ' and ')\n    .replace(/[^a-z0-9+#]+/g, ' ')\n    .replace(/\\s+/g, ' ')\n    .trim();\n}\n\nfunction normalizeTitle(value) {\n  return normalizeText(value)\n    .replace(/\\b(remote|hybrid|onsite|on site)\\b/g, ' ')\n    .replace(/\\b(united states|usa|us)\\b/g, ' ')\n    .replace(/\\b(fall|spring|summer|winter)\\s+20\\d{2}\\b/g, match => match)\n    .replace(/\\s+/g, ' ')\n    .trim();\n}\n\nfunction canonicalUrl(rawUrl) {\n  const value = clean(rawUrl);\n  if (!/^https?:\\/\\//i.test(value)) return '';\n\n  try {\n    const url = new URL(value);\n    const host = url.hostname.toLowerCase().replace(/^www\\./, '');\n    const path = url.pathname.toLowerCase();\n    const linkedIn = `${host}${path}`.match(/linkedin\\.com\\/(?:comm\\/)?jobs\\/view\\/(\\d+)/i);\n    if (linkedIn) return `linkedin:${linkedIn[1]}`;\n\n    const jobright = `${host}${path}`.match(/jobright\\.ai\\/jobs\\/info\\/([a-z0-9]+)/i);\n    if (jobright) return `jobright:${jobright[1]}`;\n\n    const glassdoorId = url.searchParams.get('jobListingId') || url.searchParams.get('jl');\n    if (host.endsWith('glassdoor.com') && glassdoorId) return `glassdoor:${glassdoorId}`;\n\n    const zipId = url.searchParams.get('jobid') || url.searchParams.get('jid') || url.searchParams.get('lvk');\n    if (host.endsWith('ziprecruiter.com') && zipId) return `ziprecruiter:${zipId}`;\n\n    url.hash = '';\n    for (const key of [...url.searchParams.keys()]) {\n      if (/^(utm_|src$|source$|campaign$|content$|cb$|guid$|uido$|cs$|jrtk$|tgt$|vt$|ao$|s$|pos$)/i.test(key)) {\n        url.searchParams.delete(key);\n      }\n    }\n    return `${host}${url.pathname}${url.search}`.toLowerCase();\n  } catch {\n    return value.toLowerCase();\n  }\n}\n\nfunction semanticKey(json) {\n  const company = normalizeText(json.company);\n  const title = normalizeTitle(json.title);\n  if (!company || !title) return '';\n  return `${company}|${title}`;\n}\n\nfunction exactKey(json) {\n  return clean(json.job_key).toLowerCase();\n}\n\nfunction shouldReprocessMemory(json) {\n  return REPROCESS_STATUSES.has(clean(json.status).toLowerCase());\n}\n\nfunction looksLikeCandidate(json) {\n  return (\n    json.sheet_memory_record_type !== 'existing_sheet_row' &&\n    Boolean(clean(json.job_key) || clean(json.title) || clean(json.url)) &&\n    Boolean(clean(json.source_email_subject) || clean(json.message_id) || clean(json.from) || clean(json.email_date))\n  );\n}\n\nfunction candidateRank(json) {\n  const source = clean(json.source).toLowerCase();\n  const sourceRank = SOURCE_RANK[source] || 0;\n  const fit = Number(json.fit_score || 0);\n  const hasUrl = /^https?:\\/\\//i.test(clean(json.url)) ? 5 : 0;\n  const descriptionBonus = Math.min(5, Math.floor(clean(json.description).length / 300));\n  return fit * 10 + sourceRank * 4 + hasUrl + descriptionBonus;\n}\n\nconst existingExact = new Set();\nconst existingUrl = new Set();\nconst existingSemantic = new Set();\nconst candidates = [];\n\nfor (const item of items) {\n  const json = item.json || {};\n\n  if (json.sheet_memory_record_type === 'existing_sheet_row') {\n    if (shouldReprocessMemory(json)) continue;\n\n    const key = exactKey(json);\n    const url = canonicalUrl(json.url);\n    const semantic = semanticKey(json);\n    if (key) existingExact.add(key);\n    if (url) existingUrl.add(url);\n    if (semantic) existingSemantic.add(semantic);\n    continue;\n  }\n\n  if (looksLikeCandidate(json)) candidates.push(item);\n}\n\nconst grouped = new Map();\nconst groupByUrl = new Map();\nconst groupBySemantic = new Map();\nconst skipped = {\n  existing_exact: 0,\n  existing_url: 0,\n  existing_semantic: 0,\n  in_run_duplicate: 0,\n};\n\nfor (const item of candidates) {\n  const json = item.json || {};\n  const key = exactKey(json);\n  const url = canonicalUrl(json.url);\n  const semantic = semanticKey(json);\n\n  if (key && existingExact.has(key)) {\n    skipped.existing_exact += 1;\n    continue;\n  }\n  if (url && existingUrl.has(url)) {\n    skipped.existing_url += 1;\n    continue;\n  }\n  if (semantic && existingSemantic.has(semantic)) {\n    skipped.existing_semantic += 1;\n    continue;\n  }\n\n  const urlGroup = url ? groupByUrl.get(url) : '';\n  const semanticGroup = semantic ? groupBySemantic.get(semantic) : '';\n  const groupKey = semanticGroup || urlGroup || semantic || url || key || JSON.stringify(json);\n  const previous = grouped.get(groupKey);\n  if (!previous || candidateRank(json) > candidateRank(previous.json || {})) {\n    if (previous) skipped.in_run_duplicate += 1;\n    grouped.set(groupKey, item);\n  } else {\n    skipped.in_run_duplicate += 1;\n  }\n\n  if (url) groupByUrl.set(url, groupKey);\n  if (semantic) groupBySemantic.set(semantic, groupKey);\n}\n\nreturn [...grouped.entries()]\n  .map(([groupKey, item], index) => ({\n    json: {\n      ...item.json,\n      pre_ai_dedupe_group_key: groupKey,\n      pre_ai_dedupe_index: index,\n      pre_ai_existing_exact_skipped: skipped.existing_exact,\n      pre_ai_existing_url_skipped: skipped.existing_url,\n      pre_ai_existing_semantic_skipped: skipped.existing_semantic,\n      pre_ai_in_run_duplicate_skipped: skipped.in_run_duplicate,\n    },\n  }))\n  .sort((a, b) => Number(b.json.fit_score || 0) - Number(a.json.fit_score || 0));\n"
+      },
+      "id": "ddfb2ef4-9369-4a4e-9df2-d9d2cd8f926e",
+      "name": "Filter new and dedupe jobs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        -80
+      ]
+    }
+  ],
+  "connections": {
+    "When clicking 'Execute workflow'": {
+      "main": [
+        [
+          {
+            "node": "Get many messages",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Get existing sheet rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get many messages": {
+      "main": [
+        [
+          {
+            "node": "Normalize and score jobs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize and score jobs": {
+      "main": [
+        [
+          {
+            "node": "Append normalized jobs and sheet memory",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Limit jobs for browser fetch": {
+      "main": [
+        [
+          {
+            "node": "Append selected jobs and browser data",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Build browser fetch batch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append selected jobs and browser data": {
+      "main": [
+        [
+          {
+            "node": "Merge job and browser data by key",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge job and browser data by key": {
+      "main": [
+        [
+          {
+            "node": "Finalize job rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Finalize job rows": {
+      "main": [
+        [
+          {
+            "node": "Prepare AI job review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare AI job review": {
+      "main": [
+        [
+          {
+            "node": "Merge job and AI review",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "AI Decision - score with profile",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Decision - score with profile": {
+      "main": [
+        [
+          {
+            "node": "Merge job and AI review",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge job and AI review": {
+      "main": [
+        [
+          {
+            "node": "Apply AI job review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apply AI job review": {
+      "main": [
+        [
+          {
+            "node": "Append or update row in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama Job Fit Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Decision - score with profile",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build browser fetch batch": {
+      "main": [
+        [
+          {
+            "node": "Fetch browser fetch batch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch browser fetch batch": {
+      "main": [
+        [
+          {
+            "node": "Parse browser fetch batch output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse browser fetch batch output": {
+      "main": [
+        [
+          {
+            "node": "Append selected jobs and browser data",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Get existing sheet rows": {
+      "main": [
+        [
+          {
+            "node": "Mark existing sheet rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark existing sheet rows": {
+      "main": [
+        [
+          {
+            "node": "Append normalized jobs and sheet memory",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Append normalized jobs and sheet memory": {
+      "main": [
+        [
+          {
+            "node": "Filter new and dedupe jobs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter new and dedupe jobs": {
+      "main": [
+        [
+          {
+            "node": "Limit jobs for browser fetch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {},
+  "versionId": "8368b569-98a2-4ee2-a55f-dd86b554718e",
+  "activeVersionId": null,
+  "versionCounter": 56,
+  "triggerCount": 0,
+  "tags": [],
+  "shared": [],
+  "versionMetadata": {
+    "name": null,
+    "description": null
+  }
+}

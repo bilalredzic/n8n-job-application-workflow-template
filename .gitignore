@@ -1,0 +1,12 @@
+.DS_Store
+client-ID-gmail
+client-secret-gmail
+.env
+.env.*
+n8n-data/
+node_modules/
+browser-state/
+profile.md
+jsonoutput.txt
+recent/
+*.xlsx

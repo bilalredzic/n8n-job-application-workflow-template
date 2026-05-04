@@ -1,0 +1,14 @@
+{
+  "name": "n8n-gmail-job-workflow",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local helpers for the n8n Gmail job application workflow.",
+  "scripts": {
+    "browser:login": "JOB_BROWSER_HEADLESS=false node scripts/browser-login.js",
+    "fetch:job": "node scripts/fetch-job-description.js",
+    "fetch:server": "node scripts/job-fetch-server.js"
+  },
+  "dependencies": {
+    "playwright-core": "^1.56.1"
+  }
+}
