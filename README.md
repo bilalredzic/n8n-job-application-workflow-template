@@ -146,6 +146,8 @@ The template workflow intentionally has blank Google Sheets document and sheet s
 
 Import [`workflows/job-application-daily.template.json`](workflows/job-application-daily.template.json) into n8n.
 
+Before the workflow can find anything useful, turn on job-alert emails in the sites you want to monitor. At minimum, create saved searches or alerts in Jobright, LinkedIn, Glassdoor, Handshake, and any other supported source, then make sure those alerts are delivered to the Gmail account connected in n8n.
+
 The workflow currently does this:
 
 1. Runs manually from n8n.
@@ -222,6 +224,8 @@ The fetch server intentionally keeps same-host browser requests conservative. Gl
 ```bash
 curl http://127.0.0.1:3456/health
 ```
+
+ZipRecruiter is treated as an email-only source by default. Its job pages commonly show Cloudflare/security checks to automated browsers, so the workflow keeps the original URL but usually skips rendered browser fetching for ZipRecruiter rows and scores them from the email snippet instead.
 
 ## Handshake and School Email
 
