@@ -178,7 +178,7 @@ One-time login setup:
 npm run browser:login
 ```
 
-This opens a separate Chrome profile stored in `browser-state/`. Log into LinkedIn and any other job sites you want the automation to read, then press Enter in the terminal. Do not commit `browser-state/`; it contains local browser session data and is ignored by `.gitignore`.
+This opens a separate Chrome profile stored in `browser-state/`. Log into LinkedIn, Glassdoor, Handshake, and any other job sites you want the automation to read, then press Enter in the terminal. For Handshake, use `https://app.joinhandshake.com/` or your school-specific Handshake login link. Do not commit `browser-state/`; it contains local browser session data and is ignored by `.gitignore`.
 
 Manual test:
 
